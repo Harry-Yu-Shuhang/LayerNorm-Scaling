@@ -13,3 +13,4 @@ bitsandbytes
 scipy
 scikit-learn
 evaluate
+importlib-metadata
