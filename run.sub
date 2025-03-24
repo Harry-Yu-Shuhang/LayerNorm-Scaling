@@ -18,16 +18,14 @@ echo "📌 进入目录: $SLURM_SUBMIT_DIR" >> output.log
 
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
-# ✅ module 系统（根据集群环境灵活处理）
-if [ -f /etc/profile.d/modules.sh ]; then
-    source /etc/profile.d/modules.sh
+# ✅ 从 API.json 中读取 WANDB_API_KEY
+if [ -f "API.json" ]; then
+    export WANDB_API_KEY=$(jq -r '.WANDB_API_KEY' API.json)
+    echo "✅ 成功读取 API.json 中的 WANDB_API_KEY" >> output.log
 else
-    echo "⚠️ modules.sh 文件不存在，跳过 module 加载" >> output.log
+    echo "⚠️ 警告: 找不到 API.json，WandB 登录将失败" >> output.log
+    export WANDB_MODE=disabled  # 可选：没有 API Key 就禁用 wandb
 fi
-
-# # ✅ 加载 Python 和 CUDA（可选）
-# module load python/3.9 >> output.log 2>&1
-# module load cuda/11.7 >> output.log 2>&1
 
 # ✅ 检查 Python 和 GPU
 echo "🔵 Python 版本: $(python --version 2>&1)" >> output.log
