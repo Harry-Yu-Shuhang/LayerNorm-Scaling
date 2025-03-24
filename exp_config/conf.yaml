@@ -1,0 +1,23 @@
+experiment:
+  seed: 42  # 随机种子
+  selected_tokens: [33]  # 选择哪些 token 计算 Jacobian
+
+model:
+  model_names:
+  #  - "deepseek-ai/deepseek-llm-7b-chat"
+   - "deepseek-ai/deepseek-coder-1.3b-base"
+training:
+  num_epochs: 3
+  per_device_batch_size: 1
+  output_dir: "results"
+  logging_steps: 50
+  learning_rate: 5e-6 
+  weight_decay: 0.01  
+  max_grad_norm: 0.5   # 限制梯度大小  
+  warmup_ratio: 0.1  # 让学习率衰减更平滑
+  gradient_accumulation_steps: 4  # 让优化器更平滑
+  max_steps: 100       
+
+
+dataset:
+  dataset_variant: "en"  # C4 数据集的语言版本
