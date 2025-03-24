@@ -35,7 +35,7 @@ echo "🔍 GPU 信息：" >> output.log
 nvidia-smi >> output.log 2>>error.log || echo "⚠️ GPU 检测失败" >> output.log
 
 # ✅ 解析 YAML 配置参数（模型大小 / norm 类型 / post 数量）
-yaml_file="config/experiment.yaml"
+yaml_file="exp_config/conf.yaml"
 model_size=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['model_size'])")
 norm_type=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['norm_type'])")
 post_num=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['post_num'])")
