@@ -1,5 +1,5 @@
 experiment:
-  model_size: "130m"  # 可选: "130m", "250m", "1b"
+  model_size: "9m"  # 可选: "9m","130m", "250m", "1b"
   norm_type: "pre"     # 可选: pre, post, post_pre, cod
   post_num: 3          # Mix-LN 中使用的 Post-LN 层数
   seed: 42  # 随机种子
@@ -11,11 +11,11 @@ model:
   #  - "deepseek-ai/deepseek-llm-7b-chat"
    - "deepseek-ai/deepseek-coder-1.3b-base"
 training:
+  learning_rate: 5e-4
   num_epochs: 3
   per_device_batch_size: 1
   output_dir: "Jacobian_results"
   logging_steps: 50
-  learning_rate: 5e-6 
   weight_decay: 0.01  
   max_grad_norm: 0.5   # 限制梯度大小  
   warmup_ratio: 0.1  # 让学习率衰减更平滑
