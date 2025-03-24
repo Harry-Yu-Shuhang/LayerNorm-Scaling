@@ -9,7 +9,7 @@ model:
 training:
   num_epochs: 3
   per_device_batch_size: 1
-  output_dir: "results"
+  output_dir: "Jacobian_results"
   logging_steps: 50
   learning_rate: 5e-6 
   weight_decay: 0.01  
