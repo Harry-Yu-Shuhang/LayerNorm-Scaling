@@ -1,0 +1,56 @@
+#!/bin/bash
+
+#SBATCH --partition=2080ti                  
+#SBATCH --nodelist=aisurrey[04,08-10]        
+#SBATCH --job-name=Jacobian_Calculation          
+#SBATCH --nodes=1                          
+#SBATCH --ntasks=3                         
+#SBATCH --gpus-per-node=3                  
+#SBATCH --cpus-per-task=16                  
+#SBATCH --time=20:00:00                    
+#SBATCH --mem=64G                          
+#SBATCH --output=output.log               
+#SBATCH --error=error.log  
+
+echo "🔍 任务开始，当前目录: $(pwd)" > output.log
+cd $SLURM_SUBMIT_DIR || { echo "❌ 目录不存在，退出"; exit 1; }
+echo "📌 进入目录: $SLURM_SUBMIT_DIR" >> output.log
+
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
+# ✅ module 系统（根据集群环境灵活处理）
+if [ -f /etc/profile.d/modules.sh ]; then
+    source /etc/profile.d/modules.sh
+else
+    echo "⚠️ modules.sh 文件不存在，跳过 module 加载" >> output.log
+fi
+
+# # ✅ 加载 Python 和 CUDA（可选）
+# module load python/3.9 >> output.log 2>&1
+# module load cuda/11.7 >> output.log 2>&1
+
+# ✅ 检查 Python 和 GPU
+echo "🔵 Python 版本: $(python --version 2>&1)" >> output.log
+echo "🔍 GPU 信息：" >> output.log
+nvidia-smi >> output.log 2>>error.log || echo "⚠️ GPU 检测失败" >> output.log
+
+# ✅ 解析 YAML 配置参数（模型大小 / norm 类型 / post 数量）
+yaml_file="config/experiment.yaml"
+model_size=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['model_size'])")
+norm_type=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['norm_type'])")
+post_num=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['experiment']['post_num'])")
+
+echo "📦 YAML 配置读取成功: 模型=$model_size, Norm=$norm_type, Post=$post_num" >> output.log
+
+# ✅ 判断对应的 .sh 脚本
+sh_script="run_${model_size}.sh"
+if [[ ! -f "$sh_script" ]]; then
+    echo "❌ 错误: 找不到脚本 $sh_script" >> output.log
+    exit 1
+fi
+
+# ✅ 启动训练任务
+echo "🚀 启动脚本: bash $sh_script $norm_type $post_num" >> output.log
+bash "$sh_script" "$norm_type" "$post_num" >> output.log 2>> error.log
+
+echo "✅ 任务完成!" >> output.log

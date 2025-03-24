@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#SBATCH --partition=debug                   # ✅ 使用 A100 分区
+#SBATCH --nodelist=aisurrey-debug[03-04]         # ✅ A100 节点（可选，指定空闲节点）
+#SBATCH --job-name=test_identity           # ✅ 任务名称
+#SBATCH --nodes=1                          # ✅ 1 个节点
+#SBATCH --ntasks=2                         # ✅ 启动 2 个进程（和 GPU 对应）
+#SBATCH --gpus-per-node=2                  # ✅ 每节点 2 张 GPU（默认每进程一张）
+#SBATCH --cpus-per-task=8                  # ✅ 每进程分配 8 核 CPU（推荐）
+#SBATCH --time=04:00:00                    # ✅ 最长运行 4 小时
+#SBATCH --mem=64G                          # ✅ 申请内存
+#SBATCH --output=output.log                # ✅ 标准输出日志
+#SBATCH --error=error.log                  # ✅ 错误日志

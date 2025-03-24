@@ -1,6 +1,10 @@
 experiment:
+  model_size: "130m"  # 可选: "130m", "250m", "1b"
+  norm_type: "pre"     # 可选: pre, post, post_pre, cod
+  post_num: 3          # Mix-LN 中使用的 Post-LN 层数
   seed: 42  # 随机种子
   selected_tokens: [33]  # 选择哪些 token 计算 Jacobian
+
 
 model:
   model_names:
