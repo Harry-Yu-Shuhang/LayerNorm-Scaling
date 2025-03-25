@@ -32,7 +32,7 @@ transformers.logging.set_verbosity_error()
 
 #TODO:这里是新添加的Jacobian
 from utils.jacobian_calculator import JacobianCalculator  # 或你的模块路径
-jacobian_calculator = JacobianCalculator()
+
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -423,6 +423,7 @@ def main(args):
                 input_ids = sample["input_ids"].unsqueeze(0).to(device)
                 attention_mask = sample["attention_mask"].unsqueeze(0).to(device)
 
+                jacobian_calculator = JacobianCalculator()
                 jacobian_calculator.compute_jacobian(
                     model=model.module if not args.single_gpu else model,
                     model_name=args.run_name,

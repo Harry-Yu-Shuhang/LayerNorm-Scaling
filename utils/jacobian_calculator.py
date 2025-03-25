@@ -2,12 +2,10 @@ import os
 import numpy as np
 import torch
 from tqdm import tqdm
-from exp_config.utils import Utils
 
 class JacobianCalculator:
-    def __init__(self):
-        self.utils = Utils()
-        self.output_dir = self.utils.output_dir
+    def __init__(self, output_dir="results/Jacobian"):
+        self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
