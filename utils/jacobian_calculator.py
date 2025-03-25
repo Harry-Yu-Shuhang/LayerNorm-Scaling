@@ -7,7 +7,16 @@ class JacobianCalculator:
     def __init__(self, output_dir="results/Jacobian"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
-        self.ln_inputs = {}  # 🆕 用于保存 Hook 捕获的输入
+        self.ln_inputs = {}
+
+    def register_ln_hooks(self, model):
+        print("🔍 注册 LayerNorm Hook")
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.LayerNorm):
+                def save_input(module, input, output, name=name):
+                    self.ln_inputs[name] = input[0].detach().clone().requires_grad_()
+                    print(f"📌 捕获 LayerNorm 输入: {name}, shape={self.ln_inputs[name].shape}")
+                module.register_forward_hook(save_input)
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
@@ -17,14 +26,14 @@ class JacobianCalculator:
         device = next(model.parameters()).device
         print(f"🟢 Step {step} - 在 {device} 上计算 Jacobian")
 
+        self.ln_inputs.clear()
+        self.register_ln_hooks(model)
+
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
         input_embeddings = model.get_input_embeddings()(input_ids)
         input_embeddings.requires_grad_()
-
-        # 🧩 注册 forward hook，获取 LayerNorm 的输入
-        self._register_ln_hooks(model)
 
         outputs = model(
             inputs_embeds=input_embeddings,
@@ -50,12 +59,18 @@ class JacobianCalculator:
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            ln_output = self.ln_inputs.get(layer - 1, None)
-            if ln_output is None:
-                print(f"⛔️ Layer {layer}: 未捕获到 LayerNorm 输入，跳过")
+            # 查找对应 LayerNorm 的输入
+            layer_name = f"model.layers.{layer - 1}.input_layernorm"
+            if layer_name not in self.ln_inputs:
+                print(f"⛔️ 没找到 Layer {layer} 的 LayerNorm 输入，跳过")
+                continue
+
+            ln_output = self.ln_inputs[layer_name]
+            if not ln_output.requires_grad:
+                print(f"⛔️ Layer {layer}: ln_output 不可导，跳过 Jacobian")
                 continue
             else:
-                print(f"✅ Layer {layer}: 捕获到 LayerNorm 输入，requires_grad={ln_output.requires_grad}")
+                print(f"✅ Layer {layer}: ln_output.requires_grad = True")
 
             for token_idx in selected_tokens:
                 try:
@@ -111,28 +126,13 @@ class JacobianCalculator:
 
             if grads is None:
                 print(f"🚫 Grad 为 None - Token {token_idx} at dim {dim} of layer")
-                return None
+                continue
 
             grads = grads[:, token_idx, :]
             grads = torch.nan_to_num(grads, nan=0.0, posinf=1.0, neginf=-1.0)
             jacobian.append(grads.detach().cpu().numpy().squeeze())
 
-        return np.stack(jacobian, axis=0)
-
-    def _register_ln_hooks(self, model):
-        """
-        为 LlamaDecoderLayer 中的 input_layernorm 注册 hook，记录每层 LayerNorm 的输入。
-        """
-
-        def make_hook(layer_idx):
-            def hook_fn(module, input, output):
-                self.ln_inputs[layer_idx] = input[0].detach().requires_grad_()
-            return hook_fn
-
-        self.ln_inputs = {}  # 清空旧缓存
-
-        for i, layer in enumerate(model.model.layers):
-            if hasattr(layer, 'input_layernorm'):
-                layer.input_layernorm.register_forward_hook(make_hook(i))
-            else:
-                print(f"⚠️ 第 {i} 层没有 input_layernorm，跳过 hook")
+        if jacobian:
+            return np.stack(jacobian, axis=0)
+        else:
+            return None
