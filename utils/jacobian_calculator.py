@@ -45,7 +45,7 @@ class JacobianCalculator:
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            ln_output = hidden_states[layer - 1].clone().detach().requires_grad_()
+            ln_output = hidden_states[layer - 1].clone().requires_grad_()
             if not ln_output.requires_grad:
                 continue
 
