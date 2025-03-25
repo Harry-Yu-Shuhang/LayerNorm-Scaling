@@ -9,6 +9,9 @@ class JacobianCalculator:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
+        if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
+            print(f"🔕 Rank {torch.distributed.get_rank()} 不保存 Jacobian，跳过。")
+            return {}, {}
         device = next(model.parameters()).device
         print(f"🟢 Step {step} - 在 {device} 上计算 Jacobian")
 
