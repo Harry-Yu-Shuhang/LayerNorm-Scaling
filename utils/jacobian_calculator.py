@@ -7,11 +7,13 @@ class JacobianCalculator:
     def __init__(self, output_dir="results/Jacobian"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+        self.ln_inputs = {}  # 🆕 用于保存 Hook 捕获的输入
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
             print(f"🔕 Rank {torch.distributed.get_rank()} 不保存 Jacobian，跳过。")
             return {}, {}
+
         device = next(model.parameters()).device
         print(f"🟢 Step {step} - 在 {device} 上计算 Jacobian")
 
@@ -20,6 +22,9 @@ class JacobianCalculator:
 
         input_embeddings = model.get_input_embeddings()(input_ids)
         input_embeddings.requires_grad_()
+
+        # 🧩 注册 forward hook，获取 LayerNorm 的输入
+        self._register_ln_hooks(model)
 
         outputs = model(
             inputs_embeds=input_embeddings,
@@ -45,21 +50,12 @@ class JacobianCalculator:
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            ln_output = hidden_states[layer - 1].clone()
-
-            if not ln_output.requires_grad:
-                print(f"⚠️ Layer {layer}: ln_output 默认不可导，尝试 requires_grad_() 后再检查")
-
-            ln_output.requires_grad_()
-
-            if not ln_output.requires_grad:
-                print(f"⛔️ Layer {layer}: requires_grad 设置失败，跳过 Jacobian")
+            ln_output = self.ln_inputs.get(layer - 1, None)
+            if ln_output is None:
+                print(f"⛔️ Layer {layer}: 未捕获到 LayerNorm 输入，跳过")
                 continue
             else:
-                print(f"✅ Layer {layer}: ln_output.requires_grad = True")
-
-            if not ln_output.requires_grad:
-                continue
+                print(f"✅ Layer {layer}: 捕获到 LayerNorm 输入，requires_grad={ln_output.requires_grad}")
 
             for token_idx in selected_tokens:
                 try:
@@ -122,3 +118,21 @@ class JacobianCalculator:
             jacobian.append(grads.detach().cpu().numpy().squeeze())
 
         return np.stack(jacobian, axis=0)
+
+    def _register_ln_hooks(self, model):
+        """
+        为 LlamaDecoderLayer 中的 input_layernorm 注册 hook，记录每层 LayerNorm 的输入。
+        """
+
+        def make_hook(layer_idx):
+            def hook_fn(module, input, output):
+                self.ln_inputs[layer_idx] = input[0].detach().requires_grad_()
+            return hook_fn
+
+        self.ln_inputs = {}  # 清空旧缓存
+
+        for i, layer in enumerate(model.model.layers):
+            if hasattr(layer, 'input_layernorm'):
+                layer.input_layernorm.register_forward_hook(make_hook(i))
+            else:
+                print(f"⚠️ 第 {i} 层没有 input_layernorm，跳过 hook")
