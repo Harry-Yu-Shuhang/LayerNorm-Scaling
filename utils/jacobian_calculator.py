@@ -30,9 +30,10 @@ class JacobianCalculator:
         def hook_fn(module, input, output):
             for i, layer in enumerate(model.model.layers):
                 if module is layer.input_layernorm:
-                    norm_inputs[f"layer_{i}_input"] = input[0].detach().clone().requires_grad_()
+                    norm_inputs[f"layer_{i}_input"] = input[0].clone().requires_grad_()
                 if module is layer.post_attention_layernorm:
-                    norm_inputs[f"layer_{i}_post"] = input[0].detach().clone().requires_grad_()
+                    norm_inputs[f"layer_{i}_post"] = input[0].clone().requires_grad_()
+
 
         handles = []
         for i, layer in enumerate(model.model.layers):
@@ -125,7 +126,6 @@ class JacobianCalculator:
                 inputs=ln_output,
                 grad_outputs=grad_outputs,
                 retain_graph=True,
-                allow_unused=True,
             )[0]
 
             if grads is None:
