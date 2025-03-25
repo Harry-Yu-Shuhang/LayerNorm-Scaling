@@ -2,27 +2,12 @@ import os
 import numpy as np
 import torch
 from tqdm import tqdm
+from peft_pretraining.modeling_llama import LlamaRMSNorm  # 如果你有自定义 RMSNorm，请替换路径
 
 class JacobianCalculator:
     def __init__(self, output_dir="results/Jacobian"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
-        self.ln_inputs = {}
-
-    def register_ln_hooks(self, model):
-        print("🔍 注册 LayerNorm Hook")
-        self.ln_layer_mapping = {}
-
-        for name, module in model.named_modules():
-            if isinstance(module, torch.nn.LayerNorm):
-                print(f"🔗 发现 LayerNorm: {name}")
-
-                def save_input(module, input, output, name=name):
-                    self.ln_inputs[name] = input[0].detach().clone().requires_grad_()
-                    print(f"📌 捕获 LayerNorm 输入: {name}, shape={self.ln_inputs[name].shape}")
-                
-                module.register_forward_hook(save_input)
-
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
@@ -30,10 +15,8 @@ class JacobianCalculator:
             return {}, {}
 
         device = next(model.parameters()).device
-        print(f"🟢 Step {step} - 在 {device} 上计算 Jacobian")
-
-        self.ln_inputs.clear()
-        self.register_ln_hooks(model)
+        print(f"\n🟢 Step {step} - 在 {device} 上计算 Jacobian")
+        print(f"🔍 注册 LayerNorm (RMSNorm) Hook")
 
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
@@ -41,12 +24,33 @@ class JacobianCalculator:
         input_embeddings = model.get_input_embeddings()(input_ids)
         input_embeddings.requires_grad_()
 
+        # 注册 forward hook 捕获每层的 RMSNorm 输入
+        norm_inputs = {}
+
+        def hook_fn(module, input, output):
+            for i, layer in enumerate(model.model.layers):
+                if module is layer.input_layernorm:
+                    norm_inputs[f"layer_{i}_input"] = input[0].detach().clone().requires_grad_()
+                if module is layer.post_attention_layernorm:
+                    norm_inputs[f"layer_{i}_post"] = input[0].detach().clone().requires_grad_()
+
+        handles = []
+        for i, layer in enumerate(model.model.layers):
+            if hasattr(layer, 'input_layernorm'):
+                handles.append(layer.input_layernorm.register_forward_hook(hook_fn))
+            if hasattr(layer, 'post_attention_layernorm'):
+                handles.append(layer.post_attention_layernorm.register_forward_hook(hook_fn))
+
+        # Forward pass with hooks
         outputs = model(
             inputs_embeds=input_embeddings,
             attention_mask=attention_mask,
             return_dict=True,
             output_hidden_states=True
         )
+
+        for handle in handles:
+            handle.remove()
 
         hidden_states = outputs.hidden_states
         num_tokens = input_ids.shape[1]
@@ -60,37 +64,30 @@ class JacobianCalculator:
         frobenius_results = {}
         mse_results = {}
 
-        for layer in tqdm(range(1, num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
+        for layer in tqdm(range(0, num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
+            ln_key = f"layer_{layer}_input"
+            if ln_key not in norm_inputs:
+                print(f"⛔️ 没找到包含 Layer {layer} 的 RMSNorm 输入，跳过")
+                continue
+
+            ln_output = norm_inputs[ln_key]
+            print(f"✅ Layer {layer}: ln_output.requires_grad = {ln_output.requires_grad}")
+
             layer_jacobians = {"attention": {}, "ffn": {}}
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            # 尝试查找包含该层编号的 LayerNorm 输入
-            candidate_keys = [k for k in self.ln_inputs if f"{layer - 1}" in k]
-            if not candidate_keys:
-                print(f"⛔️ 没找到包含 Layer {layer - 1} 的 LayerNorm 输入，跳过")
-                continue
-            ln_key = candidate_keys[0]
-            ln_output = self.ln_inputs[ln_key]
-            print(f"✅ 使用 LayerNorm: {ln_key} 作为 Layer {layer} 的输入")
-
-            if not ln_output.requires_grad:
-                print(f"⛔️ Layer {layer}: ln_output 不可导，跳过 Jacobian")
-                continue
-            else:
-                print(f"✅ Layer {layer}: ln_output.requires_grad = True")
-
             for token_idx in selected_tokens:
                 try:
-                    attn_output = hidden_states[layer][:, token_idx, :].squeeze(0)
+                    attn_output = hidden_states[layer + 1][:, token_idx, :].squeeze(0)
                     jacobian_attn = self._compute_single_jacobian(attn_output, ln_output, token_idx)
                     if jacobian_attn is not None:
                         layer_jacobians["attention"][token_idx] = jacobian_attn
                         frob_layer["attention"][token_idx] = np.linalg.norm(jacobian_attn, ord="fro")
                         mse_layer["attention"][token_idx] = np.mean(jacobian_attn ** 2)
 
-                    if layer + 1 < num_layers:
-                        ffn_output = hidden_states[layer + 1][:, token_idx, :].squeeze(0)
+                    if layer + 2 < num_layers:
+                        ffn_output = hidden_states[layer + 2][:, token_idx, :].squeeze(0)
                         jacobian_ffn = self._compute_single_jacobian(ffn_output, ln_output, token_idx)
                         if jacobian_ffn is not None:
                             layer_jacobians["ffn"][token_idx] = jacobian_ffn
@@ -123,7 +120,6 @@ class JacobianCalculator:
         for dim in range(hidden_dim):
             grad_outputs = torch.zeros_like(token_output)
             grad_outputs[dim] = 1.0
-
             grads = torch.autograd.grad(
                 outputs=token_output,
                 inputs=ln_output,
@@ -134,13 +130,10 @@ class JacobianCalculator:
 
             if grads is None:
                 print(f"🚫 Grad 为 None - Token {token_idx} at dim {dim} of layer")
-                continue
+                return None
 
             grads = grads[:, token_idx, :]
             grads = torch.nan_to_num(grads, nan=0.0, posinf=1.0, neginf=-1.0)
             jacobian.append(grads.detach().cpu().numpy().squeeze())
 
-        if jacobian:
-            return np.stack(jacobian, axis=0)
-        else:
-            return None
+        return np.stack(jacobian, axis=0)
