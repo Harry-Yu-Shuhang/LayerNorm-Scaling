@@ -420,8 +420,8 @@ def main(args):
 
                 #TODO:这里是加的Jacobian
                 sample = next(iter(dataloader))
-                input_ids = sample["input_ids"].unsqueeze(0).to(device)
-                attention_mask = sample["attention_mask"].unsqueeze(0).to(device)
+                input_ids = sample["input_ids"].to(device)
+                attention_mask = sample["attention_mask"].to(device)
 
                 jacobian_calculator = JacobianCalculator()
                 jacobian_calculator.compute_jacobian(
