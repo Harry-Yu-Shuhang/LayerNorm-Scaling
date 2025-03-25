@@ -11,12 +11,18 @@ class JacobianCalculator:
 
     def register_ln_hooks(self, model):
         print("🔍 注册 LayerNorm Hook")
+        self.ln_layer_mapping = {}
+
         for name, module in model.named_modules():
             if isinstance(module, torch.nn.LayerNorm):
+                print(f"🔗 发现 LayerNorm: {name}")
+
                 def save_input(module, input, output, name=name):
                     self.ln_inputs[name] = input[0].detach().clone().requires_grad_()
                     print(f"📌 捕获 LayerNorm 输入: {name}, shape={self.ln_inputs[name].shape}")
+                
                 module.register_forward_hook(save_input)
+
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
@@ -59,13 +65,15 @@ class JacobianCalculator:
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            # 查找对应 LayerNorm 的输入
-            layer_name = f"model.layers.{layer - 1}.input_layernorm"
-            if layer_name not in self.ln_inputs:
-                print(f"⛔️ 没找到 Layer {layer} 的 LayerNorm 输入，跳过")
+            # 尝试查找包含该层编号的 LayerNorm 输入
+            candidate_keys = [k for k in self.ln_inputs if f"{layer - 1}" in k]
+            if not candidate_keys:
+                print(f"⛔️ 没找到包含 Layer {layer - 1} 的 LayerNorm 输入，跳过")
                 continue
+            ln_key = candidate_keys[0]
+            ln_output = self.ln_inputs[ln_key]
+            print(f"✅ 使用 LayerNorm: {ln_key} 作为 Layer {layer} 的输入")
 
-            ln_output = self.ln_inputs[layer_name]
             if not ln_output.requires_grad:
                 print(f"⛔️ Layer {layer}: ln_output 不可导，跳过 Jacobian")
                 continue
