@@ -45,7 +45,19 @@ class JacobianCalculator:
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
 
-            ln_output = hidden_states[layer - 1].clone().requires_grad_()
+            ln_output = hidden_states[layer - 1].clone()
+
+            if not ln_output.requires_grad:
+                print(f"⚠️ Layer {layer}: ln_output 默认不可导，尝试 requires_grad_() 后再检查")
+
+            ln_output.requires_grad_()
+
+            if not ln_output.requires_grad:
+                print(f"⛔️ Layer {layer}: requires_grad 设置失败，跳过 Jacobian")
+                continue
+            else:
+                print(f"✅ Layer {layer}: ln_output.requires_grad = True")
+
             if not ln_output.requires_grad:
                 continue
 
@@ -102,6 +114,7 @@ class JacobianCalculator:
             )[0]
 
             if grads is None:
+                print(f"🚫 Grad 为 None - Token {token_idx} at dim {dim} of layer")
                 return None
 
             grads = grads[:, token_idx, :]
