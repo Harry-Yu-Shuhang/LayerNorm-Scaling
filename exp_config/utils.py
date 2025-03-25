@@ -16,7 +16,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 
 class Utils:
-    def __init__(self, config_path="conf.yaml"):
+    def __init__(self, config_path="exp_config/conf.yaml"):
         # 读取 YAML 配置文件
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
