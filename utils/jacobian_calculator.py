@@ -39,11 +39,12 @@ class JacobianCalculator:
             def hook_fn(module, input, output):
                 key = f"layer_{layer_index}_{tag}"
                 try:
-                    norm_inputs[key] = input[0].detach().clone().requires_grad_()
+                    norm_inputs[key] = input[0]  # 不要用 detach()
                     print(f"✅ Hook 捕获成功: {key}, shape: {input[0].shape}, requires_grad: {input[0].requires_grad}")
                 except Exception as e:
                     self._log_error(f"Hook 捕获失败: {key} - 错误信息: {e}")
             return hook_fn
+
 
         handles = []
         print(f"🔍 注册 LayerNorm (RMSNorm) Hook")
