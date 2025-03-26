@@ -8,6 +8,16 @@ class JacobianCalculator:
     def __init__(self, output_dir="results/Jacobian"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+        self.error_log_path = os.path.join(self.output_dir, "error.log")
+
+        # 初始化清空旧的 error 日志
+        with open(self.error_log_path, "w") as f:
+            f.write("")
+
+    def _log_error(self, msg):
+        with open(self.error_log_path, "a") as f:
+            f.write(msg + "\n")
+        print(f"🛑 {msg}")
 
     def compute_jacobian(self, model, model_name, step, input_ids, attention_mask):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
@@ -27,22 +37,22 @@ class JacobianCalculator:
         # 注册 forward hook 捕获每层的 RMSNorm 输入
         norm_inputs = {}
 
-        def hook_fn(module, input, output):
-            for i, layer in enumerate(model.model.layers):
-                if module is layer.input_layernorm:
-                    norm_inputs[f"layer_{i}_input"] = input[0].clone().requires_grad_()
-                if module is layer.post_attention_layernorm:
-                    norm_inputs[f"layer_{i}_post"] = input[0].clone().requires_grad_()
-
+        def make_hook_fn(layer_index, tag):
+            def hook_fn(module, input, output):
+                key = f"layer_{layer_index}_{tag}"
+                try:
+                    norm_inputs[key] = input[0].detach().clone().requires_grad_()
+                except Exception as e:
+                    self._log_error(f"Hook 捕获失败: {key} - 错误信息: {e}")
+            return hook_fn
 
         handles = []
         for i, layer in enumerate(model.model.layers):
             if hasattr(layer, 'input_layernorm'):
-                handles.append(layer.input_layernorm.register_forward_hook(hook_fn))
+                handles.append(layer.input_layernorm.register_forward_hook(make_hook_fn(i, "input")))
             if hasattr(layer, 'post_attention_layernorm'):
-                handles.append(layer.post_attention_layernorm.register_forward_hook(hook_fn))
+                handles.append(layer.post_attention_layernorm.register_forward_hook(make_hook_fn(i, "post")))
 
-        # Forward pass with hooks
         outputs = model(
             inputs_embeds=input_embeddings,
             attention_mask=attention_mask,
@@ -68,12 +78,15 @@ class JacobianCalculator:
         for layer in tqdm(range(0, num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
             ln_key = f"layer_{layer}_input"
             if ln_key not in norm_inputs:
-                print(f"⛔️ 没找到包含 Layer {layer} 的 RMSNorm 输入，跳过")
+                self._log_error(f"⛔️ 没找到 Layer {layer} 的 RMSNorm 输入 ({ln_key})，跳过")
                 continue
 
             ln_output = norm_inputs[ln_key]
-            print(f"✅ Layer {layer}: ln_output.requires_grad = {ln_output.requires_grad}")
+            if not ln_output.requires_grad:
+                self._log_error(f"⚠️ Layer {layer} 的 RMSNorm 输入不支持梯度计算 (requires_grad=False)，跳过")
+                continue
 
+            print(f"✅ Layer {layer}: ln_output.requires_grad = {ln_output.requires_grad}")
             layer_jacobians = {"attention": {}, "ffn": {}}
             frob_layer = {"attention": {}, "ffn": {}}
             mse_layer = {"attention": {}, "ffn": {}}
@@ -81,7 +94,7 @@ class JacobianCalculator:
             for token_idx in selected_tokens:
                 try:
                     attn_output = hidden_states[layer + 1][:, token_idx, :].squeeze(0)
-                    jacobian_attn = self._compute_single_jacobian(attn_output, ln_output, token_idx)
+                    jacobian_attn = self._compute_single_jacobian(attn_output, ln_output, token_idx, layer, "attention")
                     if jacobian_attn is not None:
                         layer_jacobians["attention"][token_idx] = jacobian_attn
                         frob_layer["attention"][token_idx] = np.linalg.norm(jacobian_attn, ord="fro")
@@ -89,21 +102,25 @@ class JacobianCalculator:
 
                     if layer + 2 < num_layers:
                         ffn_output = hidden_states[layer + 2][:, token_idx, :].squeeze(0)
-                        jacobian_ffn = self._compute_single_jacobian(ffn_output, ln_output, token_idx)
+                        jacobian_ffn = self._compute_single_jacobian(ffn_output, ln_output, token_idx, layer, "ffn")
                         if jacobian_ffn is not None:
                             layer_jacobians["ffn"][token_idx] = jacobian_ffn
                             frob_layer["ffn"][token_idx] = np.linalg.norm(jacobian_ffn, ord="fro")
                             mse_layer["ffn"][token_idx] = np.mean(jacobian_ffn ** 2)
 
                 except Exception as e:
-                    print(f"❌ Layer {layer}, Token {token_idx} 错误: {e}")
+                    self._log_error(f"❌ Layer {layer}, Token {token_idx} 错误: {e}")
 
             if layer_jacobians["attention"] or layer_jacobians["ffn"]:
                 jacobian_results[layer] = layer_jacobians
                 frobenius_results[layer] = frob_layer
                 mse_results[layer] = mse_layer
 
-        if jacobian_results:
+        # 检查错误日志是否为空
+        with open(self.error_log_path, "r") as f:
+            error_lines = f.readlines()
+
+        if jacobian_results and len(error_lines) == 0:
             save_path = os.path.join(self.output_dir, f"{model_name}_step_{step}_jacobian.npz")
             np.savez_compressed(save_path,
                                 jacobian=jacobian_results,
@@ -112,24 +129,29 @@ class JacobianCalculator:
             print(f"✅ Jacobian 保存至 {save_path}")
             return frobenius_results, mse_results
         else:
-            print("⚠️ Jacobian 为空，跳过保存")
+            print("🚫 检测到错误或 Jacobian 为空，跳过保存")
             return {}, {}
 
-    def _compute_single_jacobian(self, token_output, ln_output, token_idx):
+    def _compute_single_jacobian(self, token_output, ln_output, token_idx, layer_idx, tag):
         jacobian = []
         hidden_dim = token_output.shape[-1]
         for dim in range(hidden_dim):
             grad_outputs = torch.zeros_like(token_output)
             grad_outputs[dim] = 1.0
-            grads = torch.autograd.grad(
-                outputs=token_output,
-                inputs=ln_output,
-                grad_outputs=grad_outputs,
-                retain_graph=True,
-            )[0]
+            try:
+                grads = torch.autograd.grad(
+                    outputs=token_output,
+                    inputs=ln_output,
+                    grad_outputs=grad_outputs,
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+            except Exception as e:
+                self._log_error(f"🧨 autograd.grad 出错 - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag}) - {e}")
+                return None
 
             if grads is None:
-                print(f"🚫 Grad 为 None - Token {token_idx} at dim {dim} of layer")
+                self._log_error(f"🚫 Grad 为 None - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag})")
                 return None
 
             grads = grads[:, token_idx, :]
