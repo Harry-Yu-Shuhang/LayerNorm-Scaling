@@ -154,10 +154,13 @@ class JacobianCalculator:
 
             if grads is None:
                 self._log_error(f"🚫 grad 为 None - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag})")
-                return None
+                continue  # ⬅️ 尝试跳过该维度继续算其他的continue  # ⬅️ 尝试跳过该维度继续算其他的
 
             grads = grads[:, token_idx, :]
             grads = torch.nan_to_num(grads, nan=0.0, posinf=1.0, neginf=-1.0)
             jacobian.append(grads.detach().cpu().numpy().squeeze())
+            if len(jacobian) == 0:
+                self._log_error(f"📭 所有 grad 为 None - Layer {layer_idx}, Token {token_idx} ({tag})")
+                return None
 
         return np.stack(jacobian, axis=0)

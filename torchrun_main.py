@@ -172,7 +172,10 @@ def main(args):
         logger.info(f"{k:30} {v}")
     logger.info("*" * 40)
     
-    data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True)
+    # TODO:这里修改了
+    # data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True)
+    data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True, trust_remote_code=True)
+
 
 
 
@@ -419,18 +422,23 @@ def main(args):
                 )
 
                 #TODO:这里是加的Jacobian
-                sample = next(iter(dataloader))
-                input_ids = sample["input_ids"].to(device)
-                attention_mask = sample["attention_mask"].to(device)
+                # ⬇️ 安全执行 Jacobian 分析
+                try:
+                    sample = next(iter(dataloader))
+                    input_ids = sample["input_ids"].to(device)
+                    attention_mask = sample["attention_mask"].to(device)
 
-                jacobian_calculator = JacobianCalculator()
-                jacobian_calculator.compute_jacobian(
-                    model=model.module if not args.single_gpu else model,
-                    model_name=args.run_name,
-                    step=update_step,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask
-                )
+                    jacobian_calculator = JacobianCalculator()
+                    jacobian_calculator.compute_jacobian(
+                        model=model.module if not args.single_gpu else model,
+                        model_name=args.run_name,
+                        step=update_step,
+                        input_ids=input_ids,
+                        attention_mask=attention_mask
+                    )
+                except Exception as e:
+                    logger.error(f"Jacobian 计算失败: {e}")
+
             logger.info(f"Eval loss at step {update_step}: {total_loss}")
 
         if not layer_wise_flag:
