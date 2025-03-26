@@ -137,6 +137,8 @@ class JacobianCalculator:
         jacobian = []
         hidden_dim = token_output.shape[-1]
 
+        # 取第一个 batch（假设 batch_size=1，否则你得改成对所有 batch 求和或平均）
+        token_output = token_output[0]  # [hidden_dim]
         for dim in range(hidden_dim):
             grad_outputs = torch.zeros_like(token_output)
             grad_outputs[dim] = 1.0
@@ -154,13 +156,20 @@ class JacobianCalculator:
 
             if grads is None:
                 self._log_error(f"🚫 grad 为 None - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag})")
-                continue  # ⬅️ 尝试跳过该维度继续算其他的continue  # ⬅️ 尝试跳过该维度继续算其他的
+                continue
 
-            grads = grads[:, token_idx, :]
-            grads = torch.nan_to_num(grads, nan=0.0, posinf=1.0, neginf=-1.0)
-            jacobian.append(grads.detach().cpu().numpy().squeeze())
-            if len(jacobian) == 0:
-                self._log_error(f"📭 所有 grad 为 None - Layer {layer_idx}, Token {token_idx} ({tag})")
+            try:
+                grad_tensor = grads[0, token_idx, :]  # only 1st batch
+            except IndexError as e:
+                self._log_error(f"📛 grad 取 token_idx 错误 - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag}) - {e}")
                 return None
 
-        return np.stack(jacobian, axis=0)
+            grad_tensor = torch.nan_to_num(grad_tensor, nan=0.0, posinf=1.0, neginf=-1.0)
+            jacobian.append(grad_tensor.detach().cpu().numpy())
+
+        if len(jacobian) == 0:
+            self._log_error(f"📭 所有 grad 为 None - Layer {layer_idx}, Token {token_idx} ({tag})")
+            return None
+
+        return np.stack(jacobian, axis=0)  # shape: [hidden_dim, hidden_dim]
+
