@@ -66,10 +66,11 @@ class JacobianCalculator:
         hidden_states = outputs.hidden_states
         num_layers = len(hidden_states) - 1
         hidden_dim = hidden_states[1].shape[-1]
-        seq_len = attention_mask[0].sum().item()
-        selected_tokens = list(range(seq_len))
 
-        print(f"📏 token 总数: {input_ids.shape[1]}, 非 pad token: {seq_len}, 隐层维度: {hidden_dim}, 层数: {num_layers}")
+        # ✅ 获取非 padding 的 token 索引
+        batch_attention = attention_mask[0]
+        selected_tokens = (batch_attention == 1).nonzero(as_tuple=True)[0].tolist()
+        print(f"📏 token 总数: {input_ids.shape[1]}, 非 pad token: {len(selected_tokens)}, 隐层维度: {hidden_dim}, 层数: {num_layers}")
         print(f"📦 捕捉到的 RMSNorm 输入层数量: {len(norm_inputs)}")
         for k, v in norm_inputs.items():
             print(f"🔎 {k} shape: {v.shape}, requires_grad: {v.requires_grad}, is_leaf: {v.is_leaf}")
@@ -78,7 +79,7 @@ class JacobianCalculator:
         frobenius_results = {}
         mse_results = {}
 
-        for layer in tqdm(range(0, num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
+        for layer in tqdm(range(num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
             ln_key = f"layer_{layer}_input"
             if ln_key not in norm_inputs:
                 self._log_error(f"⛔️ 未捕获 Layer {layer} 的 RMSNorm 输入 ({ln_key})，跳过")
@@ -96,7 +97,6 @@ class JacobianCalculator:
             for token_idx in selected_tokens:
                 try:
                     attn_output = hidden_states[layer + 1][:, token_idx, :]
-                    print(f"🔎 Layer {layer}, Token {token_idx}, Attention shape: {attn_output.shape}, grad_fn: {attn_output.grad_fn}")
                     if attn_output.grad_fn is None:
                         self._log_error(f"❗️ Layer {layer}, Token {token_idx} Attention 无 grad_fn，跳过")
                         continue
@@ -109,7 +109,6 @@ class JacobianCalculator:
 
                     if layer + 2 < len(hidden_states):
                         ffn_output = hidden_states[layer + 2][:, token_idx, :]
-                        print(f"🔎 Layer {layer}, Token {token_idx}, FFN shape: {ffn_output.shape}, grad_fn: {ffn_output.grad_fn}")
                         if ffn_output.grad_fn is None:
                             self._log_error(f"❗️ Layer {layer}, Token {token_idx} FFN 无 grad_fn，跳过")
                             continue
