@@ -24,25 +24,29 @@ class JacobianCalculator:
 
         device = next(model.parameters()).device
         print(f"\n🟢 Step {step} - 在 {device} 上计算 Jacobian")
-        print(f"🔍 注册 LayerNorm (RMSNorm) Hook")
 
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
         input_embeddings = model.get_input_embeddings()(input_ids)
         input_embeddings.requires_grad_()
+        print(f"🧠 input_embeddings.requires_grad: {input_embeddings.requires_grad}")
+        print(f"📐 input_embeddings shape: {input_embeddings.shape}")
 
         norm_inputs = {}
+
         def make_hook_fn(layer_index, tag):
             def hook_fn(module, input, output):
                 key = f"layer_{layer_index}_{tag}"
                 try:
                     norm_inputs[key] = input[0].detach().clone().requires_grad_()
+                    print(f"✅ Hook 捕获成功: {key}, shape: {input[0].shape}, requires_grad: {input[0].requires_grad}")
                 except Exception as e:
                     self._log_error(f"Hook 捕获失败: {key} - 错误信息: {e}")
             return hook_fn
 
         handles = []
+        print(f"🔍 注册 LayerNorm (RMSNorm) Hook")
         for i, layer in enumerate(model.model.layers):
             if hasattr(layer, 'input_layernorm'):
                 handles.append(layer.input_layernorm.register_forward_hook(make_hook_fn(i, "input")))
@@ -66,6 +70,10 @@ class JacobianCalculator:
         selected_tokens = list(range(seq_len))
 
         print(f"📏 token 总数: {input_ids.shape[1]}, 非 pad token: {seq_len}, 隐层维度: {hidden_dim}, 层数: {num_layers}")
+        print(f"📦 捕捉到的 RMSNorm 输入层数量: {len(norm_inputs)}")
+        for k, v in norm_inputs.items():
+            print(f"🔎 {k} shape: {v.shape}, requires_grad: {v.requires_grad}, is_leaf: {v.is_leaf}")
+
         jacobian_results = {}
         frobenius_results = {}
         mse_results = {}
@@ -88,7 +96,7 @@ class JacobianCalculator:
             for token_idx in selected_tokens:
                 try:
                     attn_output = hidden_states[layer + 1][:, token_idx, :]
-                    print(f"🔎 Layer {layer}, Token {token_idx}, Attention 输出 shape: {attn_output.shape}")
+                    print(f"🔎 Layer {layer}, Token {token_idx}, Attention shape: {attn_output.shape}, grad_fn: {attn_output.grad_fn}")
                     if attn_output.grad_fn is None:
                         self._log_error(f"❗️ Layer {layer}, Token {token_idx} Attention 无 grad_fn，跳过")
                         continue
@@ -101,7 +109,7 @@ class JacobianCalculator:
 
                     if layer + 2 < len(hidden_states):
                         ffn_output = hidden_states[layer + 2][:, token_idx, :]
-                        print(f"🔎 Layer {layer}, Token {token_idx}, FFN 输出 shape: {ffn_output.shape}")
+                        print(f"🔎 Layer {layer}, Token {token_idx}, FFN shape: {ffn_output.shape}, grad_fn: {ffn_output.grad_fn}")
                         if ffn_output.grad_fn is None:
                             self._log_error(f"❗️ Layer {layer}, Token {token_idx} FFN 无 grad_fn，跳过")
                             continue
@@ -114,6 +122,9 @@ class JacobianCalculator:
 
                 except Exception as e:
                     self._log_error(f"❌ 计算出错 - Layer {layer}, Token {token_idx}：{e}")
+
+            print(f"📈 Layer {layer} Attention 成功 token 数: {len(layer_jacobians['attention'])}")
+            print(f"📈 Layer {layer} FFN 成功 token 数: {len(layer_jacobians['ffn'])}")
 
             if layer_jacobians["attention"] or layer_jacobians["ffn"]:
                 jacobian_results[layer] = layer_jacobians
@@ -130,18 +141,18 @@ class JacobianCalculator:
                 print(f"✅ Jacobian 已保存: {save_path}")
                 return frobenius_results, mse_results
             else:
-                print("🚫 检测到错误或结果为空，未保存")
-                return {}, {}
+                print("🚫 Jacobian 无法计算，立即终止程序")
+                exit(1)
 
     def _compute_single_jacobian(self, token_output, ln_output, token_idx, layer_idx, tag):
         jacobian = []
         hidden_dim = token_output.shape[-1]
 
-        # 取第一个 batch（假设 batch_size=1，否则你得改成对所有 batch 求和或平均）
-        token_output = token_output[0]  # [hidden_dim]
+        token_output = token_output[0]
         for dim in range(hidden_dim):
             grad_outputs = torch.zeros_like(token_output)
             grad_outputs[dim] = 1.0
+            print(f"⚙️ grad dim={dim}, grad_outputs.shape: {grad_outputs.shape}")
             try:
                 grads = torch.autograd.grad(
                     outputs=token_output,
@@ -159,7 +170,7 @@ class JacobianCalculator:
                 continue
 
             try:
-                grad_tensor = grads[0, token_idx, :]  # only 1st batch
+                grad_tensor = grads[0, token_idx, :]
             except IndexError as e:
                 self._log_error(f"📛 grad 取 token_idx 错误 - Layer {layer_idx}, Token {token_idx}, Dim {dim} ({tag}) - {e}")
                 return None
@@ -171,5 +182,4 @@ class JacobianCalculator:
             self._log_error(f"📭 所有 grad 为 None - Layer {layer_idx}, Token {token_idx} ({tag})")
             return None
 
-        return np.stack(jacobian, axis=0)  # shape: [hidden_dim, hidden_dim]
-
+        return np.stack(jacobian, axis=0)
