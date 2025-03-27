@@ -28,7 +28,8 @@ class JacobianCalculator:
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
-        input_embeddings = model.get_input_embeddings()(input_ids)
+        # 🛠 强制转为 float32，避免 bfloat16 报错
+        input_embeddings = model.get_input_embeddings()(input_ids).float()
         input_embeddings.requires_grad_()
         print(f"🧠 input_embeddings.requires_grad: {input_embeddings.requires_grad}")
         print(f"📐 input_embeddings shape: {input_embeddings.shape}")
@@ -39,12 +40,13 @@ class JacobianCalculator:
             def hook_fn(module, input, output):
                 key = f"layer_{layer_index}_{tag}"
                 try:
-                    norm_inputs[key] = input[0]  # 不要用 detach()
+                    # 🛠 Hook 的 RMSNorm 输入也转 float32
+                    norm_inputs[key] = input[0].float()
+                    norm_inputs[key].requires_grad_()
                     print(f"✅ Hook 捕获成功: {key}, shape: {input[0].shape}, requires_grad: {input[0].requires_grad}")
                 except Exception as e:
                     self._log_error(f"Hook 捕获失败: {key} - 错误信息: {e}")
             return hook_fn
-
 
         handles = []
         print(f"🔍 注册 LayerNorm (RMSNorm) Hook")
@@ -67,11 +69,10 @@ class JacobianCalculator:
         hidden_states = outputs.hidden_states
         num_layers = len(hidden_states) - 1
         hidden_dim = hidden_states[1].shape[-1]
+        seq_len = attention_mask[0].sum().item()
+        selected_tokens = list(range(seq_len))
 
-        # ✅ 获取非 padding 的 token 索引
-        batch_attention = attention_mask[0]
-        selected_tokens = (batch_attention == 1).nonzero(as_tuple=True)[0].tolist()
-        print(f"📏 token 总数: {input_ids.shape[1]}, 非 pad token: {len(selected_tokens)}, 隐层维度: {hidden_dim}, 层数: {num_layers}")
+        print(f"📏 token 总数: {input_ids.shape[1]}, 非 pad token: {seq_len}, 隐层维度: {hidden_dim}, 层数: {num_layers}")
         print(f"📦 捕捉到的 RMSNorm 输入层数量: {len(norm_inputs)}")
         for k, v in norm_inputs.items():
             print(f"🔎 {k} shape: {v.shape}, requires_grad: {v.requires_grad}, is_leaf: {v.is_leaf}")
@@ -80,7 +81,7 @@ class JacobianCalculator:
         frobenius_results = {}
         mse_results = {}
 
-        for layer in tqdm(range(num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
+        for layer in tqdm(range(0, num_layers), desc=f"Step {step} - Jacobian", unit="layer"):
             ln_key = f"layer_{layer}_input"
             if ln_key not in norm_inputs:
                 self._log_error(f"⛔️ 未捕获 Layer {layer} 的 RMSNorm 输入 ({ln_key})，跳过")
@@ -97,7 +98,7 @@ class JacobianCalculator:
 
             for token_idx in selected_tokens:
                 try:
-                    attn_output = hidden_states[layer + 1][:, token_idx, :]
+                    attn_output = hidden_states[layer + 1][:, token_idx, :].float()
                     if attn_output.grad_fn is None:
                         self._log_error(f"❗️ Layer {layer}, Token {token_idx} Attention 无 grad_fn，跳过")
                         continue
@@ -109,7 +110,7 @@ class JacobianCalculator:
                         mse_layer["attention"][token_idx] = np.mean(jacobian_attn ** 2)
 
                     if layer + 2 < len(hidden_states):
-                        ffn_output = hidden_states[layer + 2][:, token_idx, :]
+                        ffn_output = hidden_states[layer + 2][:, token_idx, :].float()
                         if ffn_output.grad_fn is None:
                             self._log_error(f"❗️ Layer {layer}, Token {token_idx} FFN 无 grad_fn，跳过")
                             continue
