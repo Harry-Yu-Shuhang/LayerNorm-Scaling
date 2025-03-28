@@ -90,7 +90,7 @@ def parse_args(args):
     return args
 
 @torch.no_grad()
-def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size):
+def evaluate_model(args, model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size):
     val_data = datasets.load_dataset("c4", "en", split="validation", streaming=True, trust_remote_code=True)
     val_data = val_data.shuffle(seed=42)
 
