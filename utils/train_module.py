@@ -16,6 +16,12 @@ def train_model(
     tokens_seen, tokens_seen_before,
     layer_wise_flag, evaluate_model, preprocess_batched, pbar
 ):
+    world_size = torch.distributed.get_world_size()
+    if args.total_batch_size is not None:
+        if args.gradient_accumulation is None:
+            assert args.total_batch_size % world_size == 0, "total_batch_size must be divisible by world_size"
+            args.gradient_accumulation = args.total_batch_size // (args.batch_size * world_size)
+            assert args.gradient_accumulation > 0, "gradient_accumulation must be greater than 0"
     update_time = time.time()
     for batch_idx, batch in enumerate(dataloader):
         global_step += 1
