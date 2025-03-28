@@ -98,7 +98,7 @@ class JacobianCalculator:
 
             for token_idx in selected_tokens:
                 try:
-                    attn_output = hidden_states[layer + 1][:, token_idx, :].float()
+                    attn_output = hidden_states[layer][:, token_idx, :].float()
                     if attn_output.grad_fn is None:
                         self._log_error(f"❗️ Layer {layer}, Token {token_idx} Attention 无 grad_fn，跳过")
                         continue
@@ -110,7 +110,7 @@ class JacobianCalculator:
                         mse_layer["attention"][token_idx] = np.mean(jacobian_attn ** 2)
 
                     if layer + 2 < len(hidden_states):
-                        ffn_output = hidden_states[layer + 2][:, token_idx, :].float()
+                        ffn_output = hidden_states[layer + 1][:, token_idx, :].float()
                         if ffn_output.grad_fn is None:
                             self._log_error(f"❗️ Layer {layer}, Token {token_idx} FFN 无 grad_fn，跳过")
                             continue
