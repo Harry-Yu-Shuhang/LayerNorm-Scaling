@@ -27,6 +27,6 @@ dataset:
   dataset_variant: "en"  # C4 数据集的语言版本
 
 jacobian:
-  calculation: false
+  calculation: true
   visualize: true
-  tokens: [1,5,10, 15, 20]
+  tokens: [5,50, 100]
