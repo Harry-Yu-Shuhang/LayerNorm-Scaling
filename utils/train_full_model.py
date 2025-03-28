@@ -28,7 +28,7 @@ def load_train_dataset(tokenizer, args, rank, world_size):
     return PreprocessedIterableDataset(data, tokenizer, batch_size=args.batch_size, max_length=args.max_length)
 
 
-def train_full_model(args):
+def train_full_model(args, evaluate_model):
     assert "LOCAL_RANK" in os.environ
     global_rank = int(os.environ['RANK'])
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -72,7 +72,7 @@ def train_full_model(args):
         tokens_seen=tokens_seen,
         tokens_seen_before=tokens_seen_before,
         layer_wise_flag=False,
-        evaluate_model=training_utils.evaluate_model,
+        evaluate_model=train_full_model(args, evaluate_model=evaluate_model),
         preprocess_batched=training_utils.get_preprocess_fn(tokenizer, args.max_length),
         pbar=pbar
     )
