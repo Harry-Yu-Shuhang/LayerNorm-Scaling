@@ -72,7 +72,7 @@ def train_full_model(args, evaluate_model):
         tokens_seen=tokens_seen,
         tokens_seen_before=tokens_seen_before,
         layer_wise_flag=False,
-        evaluate_model=train_full_model(args, evaluate_model=evaluate_model),
+        evaluate_model=evaluate_model,
         preprocess_batched=training_utils.get_preprocess_fn(tokenizer, args.max_length),
         pbar=pbar
     )
