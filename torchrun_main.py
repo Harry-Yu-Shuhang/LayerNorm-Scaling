@@ -524,32 +524,34 @@ def main(args):
     with open("exp_config/conf.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    if global_rank == 0 and config["jacobian"]["calculation"]:
+    if global_rank == 0:
         try:
-            sample = next(iter(dataloader))
-            input_ids = sample["input_ids"].to(device)
-            attention_mask = sample["attention_mask"].to(device)
+            if config["jacobian"].get("calculation", False):
+                # === Jacobian 计算 ===
+                sample = next(iter(dataloader))
+                input_ids = sample["input_ids"].to(device)
+                attention_mask = sample["attention_mask"].to(device)
 
-            jacobian_calculator = JacobianCalculator()
-            jacobian_calculator.compute_jacobian(
-                model=model.module if not args.single_gpu else model,
-                model_name=args.run_name,
-                step=update_step,
-                input_ids=input_ids,
-                attention_mask=attention_mask
-            )
+                jacobian_calculator = JacobianCalculator()
+                jacobian_calculator.compute_jacobian(
+                    model=model.module if not args.single_gpu else model,
+                    model_name=args.run_name,
+                    step=update_step,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask
+                )
 
             if config["jacobian"].get("visualize", False):
+                # === 只可视化已有 npz 文件 ===
                 from utils.visualize_jacobian import visualize_and_log_to_wandb
                 visualize_and_log_to_wandb(
                     model_name=args.run_name,
                     step=update_step,
                     tokens=config["jacobian"].get("tokens", [0]),
-                    project_dir=jacobian_calculator.output_dir,
+                    project_dir="results/Jacobian"
                 )
         except Exception as e:
-            logger.error(f"Jacobian 可视化失败: {e}")
-
+            logger.error(f"Jacobian 分析或可视化失败: {e}")
 
 
 if __name__ == "__main__":
