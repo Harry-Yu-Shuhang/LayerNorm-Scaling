@@ -37,6 +37,7 @@ transformers.logging.set_verbosity_error()
 from utils.jacobian_calculator import JacobianCalculator  # 或你的模块路径
 import yaml
 from utils.visualize_jacobian import visualize_and_log_to_wandb
+from utils.train_full_model import train_full_model
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
