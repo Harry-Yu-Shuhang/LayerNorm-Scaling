@@ -13,6 +13,7 @@ from peft_pretraining import training_utils, args_utils
 
 transformers.logging.set_verbosity_error()
 import yaml
+from utils.visualize_jacobian import visualize_and_log_to_wandb
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
