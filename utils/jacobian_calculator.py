@@ -153,7 +153,7 @@ class JacobianCalculator:
         for dim in range(hidden_dim):
             grad_outputs = torch.zeros_like(token_output)
             grad_outputs[dim] = 1.0
-            print(f"⚙️ grad dim={dim}, grad_outputs.shape: {grad_outputs.shape}")
+            # print(f"⚙️ grad dim={dim}, grad_outputs.shape: {grad_outputs.shape}")
             try:
                 grads = torch.autograd.grad(
                     outputs=token_output,
