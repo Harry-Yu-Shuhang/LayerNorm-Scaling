@@ -6,6 +6,8 @@ import json
 from tqdm import tqdm
 from loguru import logger
 from utils.jacobian_calculator import JacobianCalculator
+import time
+
 
 def train_model(
     model, tokenizer, dataloader, device, args, scheduler, optimizer,
