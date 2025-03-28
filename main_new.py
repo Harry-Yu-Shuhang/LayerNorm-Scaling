@@ -1,17 +1,38 @@
 # main.py
+import os
+import time
+import json
+import random
 import argparse
+import numpy as np
 
 import torch
+import torch.nn as nn
 import torch.utils.data
+import torch.distributed as dist
 
 import transformers
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
+from transformers import LlamaForCausalLM as HF_LlamaForCausalLM
 
+import datasets
+import datasets.distributed
+import wandb
 
+from tqdm import tqdm
 from loguru import logger
 
 from peft_pretraining import training_utils, args_utils
+from peft_pretraining.dataloader import PreprocessedIterableDataset
+from peft_pretraining.modeling_llama import LlamaForCausalLM
 
+import bitsandbytes as bnb
+
+import matplotlib.pyplot as plt
 transformers.logging.set_verbosity_error()
+
+#TODO:这里是新添加的Jacobian
+from utils.jacobian_calculator import JacobianCalculator  # 或你的模块路径
 import yaml
 from utils.visualize_jacobian import visualize_and_log_to_wandb
 
