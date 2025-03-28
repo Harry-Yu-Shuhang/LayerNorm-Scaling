@@ -16,6 +16,7 @@ from utils.train_module import train_model
 from peft_pretraining.dataloader import PreprocessedIterableDataset
 from transformers import AutoTokenizer
 import datasets
+import torch.distributed as dist
 
 def load_train_dataset(tokenizer, args, rank, world_size):
     data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True, trust_remote_code=True)
@@ -33,6 +34,8 @@ def train_full_model(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     torch.cuda.set_device(local_rank)
+
+    dist.init_process_group(backend="nccl", rank=global_rank, world_size=world_size)
     device = f"cuda:{local_rank}"
 
     tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
