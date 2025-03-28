@@ -5,6 +5,9 @@ import seaborn as sns
 import wandb
 
 def visualize_and_log_to_wandb(model_name, step, tokens, project_dir="results/Jacobian"):
+    if int(os.environ.get("RANK", "0")) != 0:
+        return  # 🚫 非主进程，不执行 wandb.log()
+
     """
     从 .npz 文件中加载 Jacobian，并将指定 tokens 的 Frobenius 和 heatmap 图像上传到 wandb。
     """
