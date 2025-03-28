@@ -29,4 +29,4 @@ dataset:
 jacobian:
   calculation: false
   visualize: true
-  tokens: [0, 5, 10]
+  tokens: [1000, 5000, 9000]
