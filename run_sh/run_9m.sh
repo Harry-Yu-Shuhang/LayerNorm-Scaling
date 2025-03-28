@@ -20,7 +20,7 @@ echo "🚀 开始训练 9M 模型 | Norm: $norm_type | Post: $post_num | LR: $le
 echo "🔧 使用的 GPU: $CUDA_VISIBLE_DEVICES"
 
 # 启动训练任务
-CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES torchrun --nproc_per_node=$NUM_GPUS --master_port=29511 torchrun_main.py \
+CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES torchrun --nproc_per_node=$NUM_GPUS --master_port=29511 main_new.py \
     --model_config configs/llama_9m.json \
     --lr $learning_rate \
     --batch_size 4 \
