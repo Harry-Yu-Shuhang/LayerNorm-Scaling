@@ -41,7 +41,7 @@ post_num=$(python -c "import yaml; print(yaml.safe_load(open('$yaml_file'))['exp
 echo "📦 YAML 配置读取成功: 模型=$model_size, Norm=$norm_type, Post=$post_num" >> output.log
 
 # ✅ 判断对应的 .sh 脚本
-sh_script="run_${model_size}.sh"
+sh_script="run_sh/run_${model_size}.sh"
 if [[ ! -f "$sh_script" ]]; then
     echo "❌ 错误: 找不到脚本 $sh_script" >> output.log
     exit 1

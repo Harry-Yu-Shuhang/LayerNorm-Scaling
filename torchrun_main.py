@@ -32,6 +32,8 @@ transformers.logging.set_verbosity_error()
 
 #TODO:这里是新添加的Jacobian
 from utils.jacobian_calculator import JacobianCalculator  # 或你的模块路径
+import yaml
+
 
 
 def parse_args(args):
@@ -518,6 +520,36 @@ def main(args):
 
     logger.info("Script finished successfully")
     print(f"Rank {global_rank} finished successfully")
+
+    with open("exp_config/conf.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    if global_rank == 0 and config["jacobian"]["enabled"]:
+        try:
+            sample = next(iter(dataloader))
+            input_ids = sample["input_ids"].to(device)
+            attention_mask = sample["attention_mask"].to(device)
+
+            jacobian_calculator = JacobianCalculator()
+            jacobian_calculator.compute_jacobian(
+                model=model.module if not args.single_gpu else model,
+                model_name=args.run_name,
+                step=update_step,
+                input_ids=input_ids,
+                attention_mask=attention_mask
+            )
+
+            if config["jacobian"].get("visualize", False):
+                from utils.visualize_jacobian import visualize_and_log_to_wandb
+                visualize_and_log_to_wandb(
+                    model_name=args.run_name,
+                    step=update_step,
+                    tokens=config["jacobian"].get("tokens", [0]),
+                    project_dir=jacobian_calculator.output_dir,
+                )
+        except Exception as e:
+            logger.error(f"Jacobian 可视化失败: {e}")
+
 
 
 if __name__ == "__main__":
