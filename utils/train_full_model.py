@@ -26,6 +26,17 @@ def load_train_dataset(tokenizer, args, rank, world_size):
         data = datasets.distributed.split_dataset_by_node(data, rank=rank, world_size=world_size)
 
     return PreprocessedIterableDataset(data, tokenizer, batch_size=args.batch_size, max_length=args.max_length)
+def get_preprocess_fn(tokenizer, max_length):
+    def preprocess_batched(batch):
+        return tokenizer(
+            batch["text"],
+            max_length=max_length,
+            truncation=True,
+            padding="max_length",
+            return_tensors="pt"
+        )
+    return preprocess_batched
+
 
 
 def train_full_model(args, evaluate_model):
@@ -73,6 +84,6 @@ def train_full_model(args, evaluate_model):
         tokens_seen_before=tokens_seen_before,
         layer_wise_flag=False,
         evaluate_model=evaluate_model,
-        preprocess_batched=training_utils.get_preprocess_fn(tokenizer, args.max_length),
+        preprocess_batched=get_preprocess_fn(tokenizer, args.max_length),
         pbar=pbar
     )
