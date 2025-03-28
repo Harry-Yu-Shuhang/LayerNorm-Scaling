@@ -524,7 +524,7 @@ def main(args):
     with open("exp_config/conf.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    if global_rank == 0 and config["jacobian"]["enabled"]:
+    if global_rank == 0 and config["jacobian"]["calculation"]:
         try:
             sample = next(iter(dataloader))
             input_ids = sample["input_ids"].to(device)
