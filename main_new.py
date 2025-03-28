@@ -59,7 +59,7 @@ def parse_args(args):
 
 
 def main():
-    args = parse_args()
+    args = parse_args(None)
 
     with open("exp_config/conf.yaml", "r") as f:
         config = yaml.safe_load(f)
