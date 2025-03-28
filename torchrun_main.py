@@ -544,6 +544,8 @@ def main(args):
             if config["jacobian"].get("visualize", False):
                 # === 只可视化已有 npz 文件 ===
                 from utils.visualize_jacobian import visualize_and_log_to_wandb
+                import wandb
+                wandb.init(project="cod", name=args.run_name)  # ⬅️ 加这一行
                 visualize_and_log_to_wandb(
                     model_name=args.run_name,
                     step=update_step,
