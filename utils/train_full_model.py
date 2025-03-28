@@ -13,6 +13,20 @@ from peft_pretraining import training_utils
 
 from utils.train_module import train_model
 
+from peft_pretraining.dataloader import PreprocessedIterableDataset
+from transformers import AutoTokenizer
+import datasets
+
+def load_train_dataset(tokenizer, args, rank, world_size):
+    data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True, trust_remote_code=True)
+    data = data.shuffle(seed=32)
+
+    if not args.single_gpu:
+        data = datasets.distributed.split_dataset_by_node(data, rank=rank, world_size=world_size)
+
+    return PreprocessedIterableDataset(data, tokenizer, batch_size=args.batch_size, max_length=args.max_length)
+
+
 def train_full_model(args):
     assert "LOCAL_RANK" in os.environ
     global_rank = int(os.environ['RANK'])
@@ -22,7 +36,7 @@ def train_full_model(args):
     device = f"cuda:{local_rank}"
 
     tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
-    dataset = training_utils.load_train_dataset(tokenizer, args, global_rank, world_size)
+    dataset = load_train_dataset(tokenizer, args, global_rank, world_size)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=4)
 
     config = AutoConfig.from_pretrained(args.model_config)
