@@ -45,7 +45,7 @@ def train_model(
 
         if update_step % args.eval_every == 0 and global_rank == 0:
             logger.info(f"Running evaluation at step {update_step}")
-            eval_loss, _ = evaluate_model(model, preprocess_batched, pad_idx, global_rank,
+            eval_loss, _ = evaluate_model(args, model, preprocess_batched, pad_idx, global_rank,
                                           torch.distributed.get_world_size(), device, args.batch_size)
 
             logger.info(f"Eval loss = {eval_loss}")
