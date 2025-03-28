@@ -545,7 +545,8 @@ def main(args):
                 # === 只可视化已有 npz 文件 ===
                 from utils.visualize_jacobian import visualize_and_log_to_wandb
                 import wandb
-                wandb.init(project="cod", name=args.run_name)  # ⬅️ 加这一行
+                if wandb.run is None:  # ✅ 只有未初始化时才 init
+                    wandb.init(project="cod", name=args.run_name)
                 visualize_and_log_to_wandb(
                     model_name=args.run_name,
                     step=update_step,
