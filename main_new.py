@@ -76,14 +76,35 @@ def main():
         # 训练 + Jacobian 分析
         train_full_model(args)
 
-    if config.get("jacobian", {}).get("visualize", False):
-        # 可视化已有 .npz
+    if config["jacobian"].get("visualize", False):
+        model_name = args.run_name
+        project_dir = "results/Jacobian"
+        tokens = config["jacobian"].get("tokens", [0])
+        step = config["jacobian"].get("step", None)
+
+        # 自动查找最近的 npz 文件
+        if step is None:
+            pattern = os.path.join(project_dir, f"{model_name}_step_*_jacobian.npz")
+            matched_files = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+            if matched_files:
+                latest_file = os.path.basename(matched_files[0])
+                import re
+                match = re.search(r"step_(\d+)_jacobian\.npz", latest_file)
+                if match:
+                    step = int(match.group(1))
+                    print(f"✅ 未指定 step，自动使用最近文件: {latest_file} (step={step})")
+                else:
+                    raise FileNotFoundError(f"❌ 无法解析 step 值：{latest_file}")
+            else:
+                raise FileNotFoundError(f"❌ 未找到匹配文件: {pattern}")
+
         visualize_and_log_to_wandb(
-            model_name=args.run_name,
-            step=config["jacobian"].get("step", 0),
-            tokens=config["jacobian"].get("tokens", [0]),
-            project_dir="results/Jacobian"
+            model_name=model_name,
+            step=step,
+            tokens=tokens,
+            project_dir=project_dir
         )
+
 
 if __name__ == "__main__":
     main()
